@@ -9,15 +9,52 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:integriCode.openFile",
+    "onCommand:integriCode.createProject",
+    "onStartupFinished",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:python",
+    "onLanguage:c",
+    "onLanguage:cpp",
+    "onLanguage:java"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "integricode.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "integriCode.openFile",
+        "title": "IntegriCode: Open File"
+      },
+      {
+        "command": "integriCode.createProject",
+        "title": "IntegriCode: Create Project"
       }
-    ]
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "integriCode.openFile",
+          "group": "navigation"
+        },
+        {
+          "command": "integriCode.createProject",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "integriCode.openFile",
+          "when": "resourceLangId == c || resourceLangId == cpp || resourceLangId == java",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -28,14 +65,18 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.93.0",
     "@types/mocha": "^10.0.7",
     "@types/node": "20.x",
+    "@types/vscode": "^1.93.0",
     "@typescript-eslint/eslint-plugin": "^8.3.0",
     "@typescript-eslint/parser": "^8.3.0",
-    "eslint": "^9.9.1",
-    "typescript": "^5.5.4",
     "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1"
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.9.1",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "keytar": "^7.9.0"
   }
 }
