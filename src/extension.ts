@@ -1,24 +1,18 @@
-// Import necessary VS Code APIs and other modules
+/// extension.ts
+
 import * as vscode from 'vscode';
-import * as crypto from 'crypto'; // Using Node.js built-in crypto module
-import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as keytar from 'keytar';
-// If you installed crypto-js, you can import it instead
-// import * as CryptoJS from 'crypto-js';
+import * as fs from 'fs'; // Ensure fs is imported
 
 const SERVICE_NAME = 'IntegriCodeExtension';
-const ACCOUNT_PUBLIC_KEY = 'publicKey';
-const ACCOUNT_PRIVATE_KEY = 'privateKey';
+const SYMMETRIC_KEY = 'symmetricKey';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Extension "IntegriCode" is now active!');
 
-        // Ensure key pair exists
-        await ensureKeyPair();
-
-            // TODO REMOVE DEBUG THINGY
-            // Verify keys and show output dialog
-    await verifyKeys();
+    // Ensure symmetric key exists
+    await ensureSymmetricKey();
 
     // Register the "IntegriCode: Open File" command
     const openFileCommand = vscode.commands.registerCommand('integriCode.openFile', async () => {
@@ -110,28 +104,72 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const publicKeyPath = publicKeyUri[0].fsPath;
 
-            // Step 4: Read the code file
+            // Step 7: Read the code file
             const codeContent = await vscode.workspace.fs.readFile(vscode.Uri.file(codeFilePath));
             const codeString = Buffer.from(codeContent).toString('utf8');
 
-            // Step 5: Read the signature file
+            // Step 8: Read the signature file as binary
             const signatureContent = await vscode.workspace.fs.readFile(vscode.Uri.file(signatureFilePath));
-            const signature = signatureContent;
+            const signature = signatureContent; // Keep it as a Buffer without conversion
 
-            // Step 6: Read the public key
-            const publicKey = fs.readFileSync(publicKeyPath, 'utf8');
+            // Step 9: Read the instructor's public key
+            const instructorPublicKey = fs.readFileSync(publicKeyPath, 'utf8');
 
-            // Step 7: Verify the signature
-            const verifier = crypto.createVerify('sha512');
-            verifier.update(codeString);
-            verifier.end();
-
-            const isValid = verifier.verify(publicKey, signature);
+            // Step 10: Verify the signature using SHA-512 and RSA-PSS
+            const isValid = crypto.verify(
+                'sha512',
+                Buffer.from(codeString, 'utf8'),
+                {
+                    key: instructorPublicKey,
+                    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+                    saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+                },
+                signature // Pass the signature directly as binary data
+            );
 
             if (isValid) {
                 vscode.window.showInformationMessage('Signature verification successful. The file is authentic.');
+            
+                // Step 11: Append instructor's public key and SHA-512 hash to the plaintext code
+                const hash = crypto.createHash('sha512').update(codeString, 'utf8').digest('hex');
+                const appendedContent = `${codeString}\n---INSTRUCTOR_PUBLIC_KEY---\n${instructorPublicKey}\n---HASH---\n${hash}`;
+            
+                // Step 12: Retrieve the symmetric key from secure storage
+                const symmetricKey = await getSymmetricKey();
+            
+                // Step 13: Encrypt the appended content with the symmetric key using AES-256-GCM
+                const iv = crypto.randomBytes(12); // 96-bit IV for GCM
+                const cipher = crypto.createCipheriv('aes-256-gcm', symmetricKey, iv);
+                let encryptedData = cipher.update(appendedContent, 'utf8');
+                encryptedData = Buffer.concat([encryptedData, cipher.final()]);
+                const authTag = cipher.getAuthTag(); // Authentication tag for GCM
+            
+                // Combine IV, authTag, and encrypted data
+                const combinedEncryptedData = Buffer.concat([iv, authTag, encryptedData]);
+            
+                // Step 14: Ask the user where to save the encrypted file
+                const saveFileUri = await vscode.window.showSaveDialog({
+                    saveLabel: 'Save Encrypted File',
+                    defaultUri: vscode.Uri.file(`${codeFilePath}.encrypted.enc`),
+                    filters: {
+                        'Encrypted Files': ['enc'],
+                        'All Files': ['*']
+                    }
+                });
+            
+                if (!saveFileUri) {
+                    vscode.window.showErrorMessage('No save location selected.');
+                    return;
+                }
+            
+                // Step 15: Write the encrypted content to the chosen path
+                await vscode.workspace.fs.writeFile(saveFileUri, combinedEncryptedData);
+            
+                vscode.window.showInformationMessage(`Encrypted file saved to: ${saveFileUri.fsPath}`);
             } else {
                 vscode.window.showErrorMessage('Signature verification failed. The file may have been tampered with.');
+                // Optionally, close the active editor
+                await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
             }
 
         } catch (error) {
@@ -167,111 +205,46 @@ export function deactivate() {
     console.log('Extension "code-integrity" is now deactivated.');
 }
 
-/**
- * Ensures that the extension has a generated key pair stored securely.
- * If not, generates a new RSA 2048 key pair and stores them using keytar.
- */
-async function ensureKeyPair() {
-    // Check if keys already exist
-    const existingPublicKey = await keytar.getPassword(SERVICE_NAME, ACCOUNT_PUBLIC_KEY);
-    const existingPrivateKey = await keytar.getPassword(SERVICE_NAME, ACCOUNT_PRIVATE_KEY);
-
-    if (existingPublicKey && existingPrivateKey) {
-        console.log('Key pair already exists.');
-        return;
+// Function to ensure the symmetric key exists
+async function ensureSymmetricKey() {
+    let symmetricKey = await keytar.getPassword(SERVICE_NAME, SYMMETRIC_KEY);
+    if (!symmetricKey) {
+        // Generate a 256-bit (32 bytes) random key
+        const keyBuffer = crypto.randomBytes(32);
+        symmetricKey = keyBuffer.toString('base64');
+        await keytar.setPassword(SERVICE_NAME, SYMMETRIC_KEY, symmetricKey);
+        console.log('Symmetric key generated and stored securely.');
+    } else {
+        console.log('Symmetric key already exists.');
     }
-
-    console.log('Generating new RSA 2048 key pair...');
-
-    // Generate RSA 2048 key pair
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-        modulusLength: 2048,
-        publicKeyEncoding: {
-            type: 'pkcs1',
-            format: 'pem'
-        },
-        privateKeyEncoding: {
-            type: 'pkcs1',
-            format: 'pem'
-        }
-    });
-
-    // Store the keys securely using keytar
-    await keytar.setPassword(SERVICE_NAME, ACCOUNT_PUBLIC_KEY, publicKey);
-    await keytar.setPassword(SERVICE_NAME, ACCOUNT_PRIVATE_KEY, privateKey);
-
-    console.log('Key pair generated and stored securely.');
+    return symmetricKey;
 }
 
-/**
- * Retrieves the stored public key.
- * @returns The public key in PEM format.
- */
-export async function getPublicKey(): Promise<string> {
-    const publicKey = await keytar.getPassword(SERVICE_NAME, ACCOUNT_PUBLIC_KEY);
-    if (!publicKey) {
-        throw new Error('Public key not found.');
+// Function to retrieve the symmetric key
+async function getSymmetricKey(): Promise<Buffer> {
+    const symmetricKey = await keytar.getPassword(SERVICE_NAME, SYMMETRIC_KEY);
+    if (!symmetricKey) {
+        throw new Error('Symmetric key not found.');
     }
-    return publicKey;
+    return Buffer.from(symmetricKey, 'base64');
 }
 
-/**
- * Retrieves the stored private key.
- * @returns The private key in PEM format.
- */
-export async function getPrivateKey(): Promise<string> {
-    const privateKey = await keytar.getPassword(SERVICE_NAME, ACCOUNT_PRIVATE_KEY);
-    if (!privateKey) {
-        throw new Error('Private key not found.');
-    }
-    return privateKey;
-}
+// Function to decrypt data
+function decryptData(encryptedData: Buffer, symmetricKey: Buffer): string {
+    // Extract IV (first 12 bytes), Auth Tag (next 16 bytes), and Encrypted Data (rest)
+    const iv = encryptedData.slice(0, 12);
+    const authTag = encryptedData.slice(12, 28);
+    const ciphertext = encryptedData.slice(28);
 
-/**
- * Verifies that the extension has access to both public and private keys.
- * Displays an information or error dialog based on the verification result.
- */
-async function verifyKeys() {
-    try {
-        const publicKey = await keytar.getPassword(SERVICE_NAME, ACCOUNT_PUBLIC_KEY);
-        const privateKey = await keytar.getPassword(SERVICE_NAME, ACCOUNT_PRIVATE_KEY);
+    // Initialize decipher
+    const decipher = crypto.createDecipheriv('aes-256-gcm', symmetricKey, iv);
+    decipher.setAuthTag(authTag);
 
-        if (publicKey && privateKey) {
-            vscode.window.showInformationMessage('IntegriCode: Key pair is successfully loaded.');
-        } else {
-            vscode.window.showErrorMessage('IntegriCode: Missing public or private key.');
-        }
-    } catch (error) {
-        console.error(`Error verifying keys: ${error}`);
-        vscode.window.showErrorMessage('IntegriCode: An error occurred while verifying keys.');
-    }
-}
+    // Decrypt
+    let decrypted = decipher.update(ciphertext, undefined, 'utf8');
+    decrypted += decipher.final('utf8');
 
-/**
- * Decrypts the encrypted metadata using the editor's private key.
- * Implement this function based on your cryptographic requirements.
- * 
- * @param encryptedMetadata The encrypted metadata string.
- * @returns The decrypted metadata string.
- */
-function decryptMetadata(encryptedMetadata: string): string {
-    // Example using Node.js crypto module with RSA
-    // Replace with your actual decryption logic
-
-    // Load the editor's private key
-    const privateKeyPath = '/path/to/editor_private_key.pem'; // Update the path accordingly
-	const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
-
-    // Decrypt the metadata
-    const decryptedBuffer = crypto.privateDecrypt(
-        {
-            key: privateKey,
-            padding: crypto.constants.RSA_PKCS1_PADDING,
-        },
-        Buffer.from(encryptedMetadata, 'base64')
-    );
-
-    return decryptedBuffer.toString('utf8');
+    return decrypted;
 }
 
 /**

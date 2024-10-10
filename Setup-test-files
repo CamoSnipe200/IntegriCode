@@ -1,0 +1,11 @@
+# Step 1: Generate RSA Private Key
+openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:2048
+
+# Step 2: Extract the Public Key
+openssl rsa -pubout -in private_key.pem -out public_key.pem
+
+# Step 3: Encrypt the File using the Public Key
+openssl pkeyutl -encrypt -pubin -in hello.c -out hello.c.enc -inkey public_key.pem
+
+# Step 4: Create SHA-512 Hash of the Original File
+openssl dgst -sha512 hello.c > hello.c.sha512
