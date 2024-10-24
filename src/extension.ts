@@ -14,8 +14,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Ensure symmetric key exists
     await ensureSymmetricKey();
 
-    // Register the "IntegriCode: Open File" command
-    const openFileCommand = vscode.commands.registerCommand('integriCode.openFile', async () => {
+    // Register the "IntegriCode: Open New Project" command
+    const openNewProjectFileCommand = vscode.commands.registerCommand('integriCode.openNewProjectFile', async () => {
         try {
             // Step 1: Inform the user to select the code file
             const codeFileInfo = await vscode.window.showInformationMessage(
@@ -197,8 +197,113 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Register the "IntegriCode: Open Encrypted Project" command
+    const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode.openEncryptedProject', async () => {
+        try {
+            // Step 1: Select the encrypted file
+            const encryptedFileUri = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                openLabel: 'Select Encrypted Project File',
+                filters: {
+                    'Encrypted Files': ['enc'],
+                    'All Files': ['*']
+                }
+            });
+
+            if (!encryptedFileUri || encryptedFileUri.length === 0) {
+                vscode.window.showErrorMessage('No encrypted file selected.');
+                return;
+            }
+
+            const encryptedFilePath = encryptedFileUri[0].fsPath;
+
+            // Step 2: Read the encrypted file
+            const encryptedContent = await vscode.workspace.fs.readFile(vscode.Uri.file(encryptedFilePath));
+
+            // Step 3: Decrypt the content
+            const decryptedContent = await decryptContent(encryptedContent);
+
+            // Step 4: Open decrypted content in a virtual document
+            const decryptedDocument = await vscode.workspace.openTextDocument({
+                content: decryptedContent,
+                language: 'plaintext'
+            });
+
+            const editor = await vscode.window.showTextDocument(decryptedDocument, { preview: false });
+
+            // Set context to indicate editing an encrypted project
+        await vscode.commands.executeCommand('setContext', 'integriCode.editingEncryptedProject', true);
+
+        // Register event listener to prevent direct saving
+        const disposable = vscode.workspace.onWillSaveTextDocument(event => {
+            if (event.document === decryptedDocument) {
+                vscode.window.showWarningMessage('Please use "IntegriCode: Save Encrypted Project" to save your changes securely.');
+                event.waitUntil(Promise.reject('Direct saving is disabled.'));
+            }
+        });
+
+        context.subscriptions.push(disposable);
+
+        } catch (error) {
+            console.error(`Error opening encrypted project: ${error}`);
+            vscode.window.showErrorMessage(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    });
+
+    // Register the custom save command
+    const saveEncryptedProjectCommand = vscode.commands.registerCommand('integriCode.saveEncryptedProject', async () => {
+        try {
+            const activeEditor = vscode.window.activeTextEditor;
+            if (!activeEditor) {
+                vscode.window.showErrorMessage('No active editor found.');
+                return;
+            }
+
+            const document = activeEditor.document;
+
+            // Ensure the document is the decrypted one
+            // (You might need a better way to track this)
+            if (document.uri.scheme !== 'untitled') { // Example condition
+                vscode.window.showErrorMessage('This command can only be used on decrypted project documents.');
+                return;
+            }
+
+            const decryptedContent = document.getText();
+
+            // Step 1: Encrypt the content
+            const encryptedContent = await encryptContent(decryptedContent);
+
+            // Step 2: Ask user where to save the encrypted file
+            const saveFileUri = await vscode.window.showSaveDialog({
+                saveLabel: 'Save Encrypted Project',
+                defaultUri: vscode.Uri.file(`${document.fileName}.enc`),
+                filters: {
+                    'Encrypted Files': ['enc'],
+                    'All Files': ['*']
+                }
+            });
+
+            if (!saveFileUri) {
+                vscode.window.showErrorMessage('No save location selected.');
+                return;
+            }
+
+            // Step 3: Write the encrypted content to the chosen path
+            await vscode.workspace.fs.writeFile(saveFileUri, encryptedContent);
+
+            vscode.window.showInformationMessage(`Encrypted project saved to: ${saveFileUri.fsPath}`);
+
+            // Optional: Close the decrypted document
+            await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+        } catch (error) {
+            console.error(`Error saving encrypted project: ${error}`);
+            vscode.window.showErrorMessage(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    });
+
     // Add the commands to the extension's subscriptions
-    context.subscriptions.push(openFileCommand, createProjectCommand);
+    context.subscriptions.push(openNewProjectFileCommand, createProjectCommand, openEncryptedProjectCommand, saveEncryptedProjectCommand);
 }
 
 export function deactivate() {
@@ -229,22 +334,31 @@ async function getSymmetricKey(): Promise<Buffer> {
     return Buffer.from(symmetricKey, 'base64');
 }
 
-// Function to decrypt data
-function decryptData(encryptedData: Buffer, symmetricKey: Buffer): string {
-    // Extract IV (first 12 bytes), Auth Tag (next 16 bytes), and Encrypted Data (rest)
-    const iv = encryptedData.slice(0, 12);
-    const authTag = encryptedData.slice(12, 28);
+async function decryptContent(encryptedData: Uint8Array): Promise<string> {
+    const symmetricKey = await getSymmetricKey();
+    const iv = encryptedData.slice(0, 12); // 96-bit IV for GCM
+    const authTag = encryptedData.slice(12, 28); // 128-bit auth tag
     const ciphertext = encryptedData.slice(28);
 
-    // Initialize decipher
     const decipher = crypto.createDecipheriv('aes-256-gcm', symmetricKey, iv);
     decipher.setAuthTag(authTag);
 
-    // Decrypt
     let decrypted = decipher.update(ciphertext, undefined, 'utf8');
     decrypted += decipher.final('utf8');
 
     return decrypted;
+}
+
+async function encryptContent(plainText: string): Promise<Uint8Array> {
+    const symmetricKey = await getSymmetricKey();
+    const iv = crypto.randomBytes(12); // 96-bit IV for GCM
+    const cipher = crypto.createCipheriv('aes-256-gcm', symmetricKey, iv);
+    let encrypted = cipher.update(plainText, 'utf8');
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    // Combine IV, authTag, and encrypted data
+    return Buffer.concat([iv, authTag, encrypted]);
 }
 
 /**

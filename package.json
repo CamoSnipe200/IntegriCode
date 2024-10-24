@@ -10,8 +10,9 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:integriCode.openFile",
+    "onCommand:integriCode.openNewProjectFile",
     "onCommand:integriCode.createProject",
+    "onCommand:integriCode.openEncryptedProject",
     "onStartupFinished",
     "onLanguage:javascript",
     "onLanguage:typescript",
@@ -22,14 +23,36 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "keybindings": [
+      {
+        "command": "editor.action.clipboardCopyAction",
+        "key": "ctrl+c",
+        "when": "editorTextFocus && integriCode.editingEncryptedProject"
+      },
+      {
+        "command": "editor.action.clipboardCutAction",
+        "key": "ctrl+x",
+        "when": "editorTextFocus && integriCode.editingEncryptedProject"
+      },
+      {
+        "command": "editor.action.clipboardPasteAction",
+        "key": "ctrl+v",
+        "when": "editorTextFocus && integriCode.editingEncryptedProject"
+      }
+    ],
     "commands": [
       {
         "command": "integricode.helloWorld",
         "title": "Hello World"
       },
       {
-        "command": "integriCode.openFile",
-        "title": "IntegriCode: Open File"
+        "command": "integriCode.openNewProjectFile",
+        "title": "IntegriCode: Open New Project File"
+      },
+      {
+        "command": "integriCode.openEncryptedProject",
+        "title": "IntegriCode: Open Encrypted Project",
+        "category": "IntegriCode"
       },
       {
         "command": "integriCode.createProject",
@@ -39,17 +62,21 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "integriCode.openFile",
+          "command": "integriCode.openNewProjectFile",
           "group": "navigation"
         },
         {
           "command": "integriCode.createProject",
           "group": "navigation"
+        },
+        {
+          "command": "integriCode.openEncryptedProject",
+          "group": "navigation"
         }
       ],
       "explorer/context": [
         {
-          "command": "integriCode.openFile",
+          "command": "integriCode.openNewProjectFile",
           "when": "resourceLangId == c || resourceLangId == cpp || resourceLangId == java",
           "group": "navigation"
         }
