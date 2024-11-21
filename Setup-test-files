@@ -4,8 +4,11 @@ openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:204
 # Step 2: Extract the Public Key
 openssl rsa -pubout -in private_key.pem -out public_key.pem
 
-# Step 3: Encrypt the File using the Public Key
-openssl pkeyutl -encrypt -pubin -in hello.c -out hello.c.enc -inkey public_key.pem
+# Step 3: Create SHA-512 Hash of the Original File
+openssl dgst -sha512 test-input.c > test-input.c.sha512
 
-# Step 4: Create SHA-512 Hash of the Original File
-openssl dgst -sha512 hello.c > hello.c.sha512
+# Step 4: Create the signature of the plaintext code
+openssl dgst -sha512 -sign private_key.pem -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1 -out test-input.c.sig test-input.c
+
+# Step 5: Validate signature of plaintext code
+openssl dgst -sha512 -verify public_key.pem -signature test-input.c.sig -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1 test-input.c
