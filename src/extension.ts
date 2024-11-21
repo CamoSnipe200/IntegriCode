@@ -13,9 +13,6 @@ const SYMMETRIC_KEY = 'symmetricKey';
 // TODO: Actually disable copy paste. Remove public key and hash from code when opened. Set file type when opened. 
 // Override saving. Fix Integricode: Integricode: Open Encrypted Project. Can the white dot go away?
 
-// Add a Map to store public key and hash for each encrypted project
-const encryptedProjectData = new Map<string, { publicKey: string; hash: string }>();
-
 // Add a variable to store the current encrypted file path
 let currentEncryptedFilePath: string | null = null;
 
@@ -232,7 +229,31 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
 
         console.log('Encrypted File Path:', currentEncryptedFilePath);
 
-        // Step 2: Create a Webview Panel
+        // Step 2: Read the encrypted file
+        const encryptedContent = await vscode.workspace.fs.readFile(vscode.Uri.file(encryptedFilePath));
+
+        // Step 3: Decrypt the content
+        const decryptedContent = await decryptContent(encryptedContent)
+
+        // Extract code, public key, and hash
+        const delimiterPublicKey = '\n---INSTRUCTOR_PUBLIC_KEY---\n';
+        const delimiterHash = '\n---HASH---\n';
+
+        const publicKeyIndex = decryptedContent.indexOf(delimiterPublicKey);
+        const hashIndex = decryptedContent.indexOf(delimiterHash);
+
+        if (publicKeyIndex === -1 || hashIndex === -1) {
+            vscode.window.showErrorMessage('Invalid encrypted file format.');
+            return;
+        }
+
+        const code = decryptedContent.substring(0, publicKeyIndex);
+        const publicKey = decryptedContent.substring(publicKeyIndex + delimiterPublicKey.length, hashIndex);
+        // const hash = decryptedContent.substring(hashIndex + delimiterHash.length);        
+
+            // Debug statement to say we got here
+        console.log('Code Debug:', code);
+
         const panel = vscode.window.createWebviewPanel(
             'integriCodeEncryptedProject', // Identifies the type of the webview. Used internally
             'IntegriCode Encrypted Project', // Title of the panel displayed to the user
@@ -242,74 +263,34 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
             }
         );
 
-        // Step 3: Determine the current theme
+        // Step 4: Determine the current theme
         const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vs-dark' : 'light';
 
-        // Step 4: Set the HTML content using the getWebviewContent function
-        panel.webview.html = getWebviewContent(theme);
+        // Step 5: Set the HTML content
+        panel.webview.html = getWebviewContent(theme, code);
+
+
+        // Step 6: Add message listener for the webview
+        panel.webview.onDidReceiveMessage(async message => {
+            switch (message.command) {
+                case 'SaveEncryptedProject':
+                    await SaveEncryptedProject(message.code, encryptedFilePath, publicKey);
+                    break;
+                case 'noop':
+                    vscode.window.showInformationMessage('Copy/Paste actions are disabled for encrypted projects.');
+                    break;
+                default:
+                    console.warn(`Unknown command: ${message.command}`);
+            }
+        }, undefined, context.subscriptions);
 
         console.log('Webview panel created.');
+
     } catch (error) {
         console.error(`Error opening encrypted project: ${error}`);
         vscode.window.showErrorMessage(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
     }
 });
-
-    // Register the No-Op command to override clipboard actions
-    const noopCommand = vscode.commands.registerCommand('integriCode.noop', () => {
-        vscode.window.showInformationMessage('Copy/Paste actions are disabled for encrypted projects.');
-    });
-    context.subscriptions.push(noopCommand);
-
-    // **Add the Save Encrypted Project command**
-    const saveEncryptedProjectCommand = vscode.commands.registerCommand('integriCode.saveEncryptedProject', async (text: string) => {
-        if (!currentEncryptedFilePath) {
-            vscode.window.showErrorMessage('No encrypted project is currently open.');
-            return;
-        }
-
-        try {
-            // Step 1: Retrieve project data
-            const projectData = encryptedProjectData.get(currentEncryptedFilePath);
-            if (!projectData) {
-                vscode.window.showErrorMessage('Project data not found.');
-                return;
-            }
-
-            const { publicKey: instructorPublicKey } = projectData;
-
-            // Step 2: Generate SHA-512 hash of the code
-            const hash = generateHash(text);
-
-            // Step 3: Append instructor's public key and hash to the plaintext code
-            const appendedContent = `${text}\n---INSTRUCTOR_PUBLIC_KEY---\n${instructorPublicKey}\n---HASH---\n${hash}`;
-
-            // Step 4: Retrieve the symmetric key from secure storage
-            const symmetricKey = await getSymmetricKey();
-
-            // Step 5: Encrypt the appended content with the symmetric key using AES-256-GCM
-            const iv = crypto.randomBytes(12); // 96-bit IV for GCM
-            const cipher = crypto.createCipheriv('aes-256-gcm', symmetricKey, iv);
-            let encryptedData = cipher.update(appendedContent, 'utf8');
-            encryptedData = Buffer.concat([encryptedData, cipher.final()]);
-            const authTag = cipher.getAuthTag(); // Authentication tag for GCM
-
-            // Step 6: Combine IV, authTag, and encrypted data
-            const combinedEncryptedData = Buffer.concat([iv, authTag, encryptedData]);
-
-            // Step 7: Overwrite the encrypted file with the new encrypted data
-            await vscode.workspace.fs.writeFile(vscode.Uri.file(currentEncryptedFilePath), combinedEncryptedData);
-
-            vscode.window.showInformationMessage(`Encrypted project saved successfully at: ${currentEncryptedFilePath}`);
-        } catch (error) {
-            console.error(`Error saving encrypted project: ${error}`);
-            vscode.window.showErrorMessage(`An error occurred while saving: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    });
-    context.subscriptions.push(saveEncryptedProjectCommand);
-
-    // Add the commands to the extension's subscriptions
-    context.subscriptions.push(openNewProjectFileCommand, createProjectCommand, openEncryptedProjectCommand);
 }
 
 export function deactivate() {
@@ -378,7 +359,7 @@ function generateHash(content: string): string {
 }
 
 // Function to generate the webview content
-function getWebviewContent(theme: string): string {
+function getWebviewContent(theme: string, code: string): string {
     const isDark = theme === 'vs-dark';
     const backgroundColor = isDark ? '#1E1E1E' : '#FFFFFF';
     const textColor = isDark ? '#D4D4D4' : '#000000';
@@ -418,11 +399,23 @@ function getWebviewContent(theme: string): string {
             padding: 10px;
             box-sizing: border-box;
         }
+        #saveEncryptedProject {
+        height: 40px;
+        font-size: 16px;
+        background-color: ${isDark ? '#3C3C3C' : '#F3F3F3'};
+        color: ${textColor};
+        border: none;
+        cursor: pointer;
+        }
+        #saveEncryptedProject:hover {
+            background-color: ${isDark ? '#505050' : '#E1E1E1'};
+        }
         
     </style>
 </head>
 <body>
-    <textarea id="editor">Hello World</textarea>
+    <textarea id="editor">${code}</textarea>
+    <button id="saveEncryptedProject">Save Encrypted Project</button>
     <script src="${highlightJsScript}"></script>
     <script>
         const vscode = acquireVsCodeApi();
@@ -437,7 +430,66 @@ function getWebviewContent(theme: string): string {
                 vscode.postMessage({ command: 'noop' });
             });
         });
+
+        // Add event listener for the Save Encrypted Project button
+        document.getElementById('saveEncryptedProject').addEventListener('click', () => {
+            const plaintextCode = document.getElementById('editor').value;
+            vscode.postMessage({ command: 'SaveEncryptedProject', code: plaintextCode, filePath: '${currentEncryptedFilePath}' });
+        });
     </script>
 </body>
 </html>`;
+}
+
+async function SaveEncryptedProject(code: string, filePath: string, publicKey: string) {
+    // This function handles saving the encrypted project using the provided code, publicKey, and filePath
+
+    // Validate that the publicKey parameter is provided
+    if (!publicKey) {
+        console.error('Public key is undefined. Cannot save encrypted project.');
+        vscode.window.showErrorMessage('Public key is missing. Cannot save encrypted project.');
+        return;
+    }
+
+    console.log('Saving Encrypted Project:', { code, filePath, publicKey });
+    vscode.window.showInformationMessage('SaveEncryptedProject function called.');
+
+    try {
+        console.log("Got here 1");
+        // Step 2: Generate SHA-512 hash of the code
+        const hash = generateHash(code);
+
+        // Step 3: Append instructor's public key and hash to the plaintext code
+        const appendedContent = `${code}\n---INSTRUCTOR_PUBLIC_KEY---\n${publicKey}\n---HASH---\n${hash}`;
+
+        // Step 4: Retrieve the symmetric key from secure storage
+        const symmetricKey = await getSymmetricKey();
+
+        // Step 5: Encrypt the appended content with the symmetric key using AES-256-GCM
+        const iv = crypto.randomBytes(12); // 96-bit IV for GCM
+        const cipher = crypto.createCipheriv('aes-256-gcm', symmetricKey, iv);
+        let encryptedData = cipher.update(appendedContent, 'utf8');
+        encryptedData = Buffer.concat([encryptedData, cipher.final()]);
+        const authTag = cipher.getAuthTag(); // Authentication tag for GCM
+
+        // Debug log to say we got here
+        console.log('Got here!');
+
+        // Step 6: Combine IV, authTag, and encrypted data
+        // ** VERIFY THAT THIS IS WORKING!! **
+        const combinedEncryptedData = Buffer.concat([iv, authTag, encryptedData]);
+
+        // Debug to print the encrypted data
+        // ** THIS ISN'T PRINTING!! **
+        // console.log('Encrypted Data:', combinedEncryptedData);
+
+        // Step 7: Overwrite the encrypted file with the new encrypted data
+        // ** THIS IS FAILING **
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), combinedEncryptedData);
+
+        vscode.window.showInformationMessage(`Encrypted project saved successfully at: ${filePath}`);
+    } catch (error) {
+        console.error(`Error saving encrypted project: ${error}`);
+        vscode.window.showErrorMessage(`An error occurred while saving: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }

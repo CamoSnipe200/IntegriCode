@@ -12,38 +12,22 @@
   "activationEvents": [
     "onCommand:integriCode.openNewProjectFile",
     "onCommand:integriCode.createProject",
-    "onCommand:integriCode.openEncryptedProject",
     "onStartupFinished",
     "onLanguage:javascript",
     "onLanguage:typescript",
     "onLanguage:python",
     "onLanguage:c",
     "onLanguage:cpp",
-    "onLanguage:java"
+    "onLanguage:java",
+    "onFile:*.encrypted.enc",
+    "onCommand:integriCode.openEncryptedProject"
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "keybindings": [
-      {
-        "command": "editor.action.clipboardCopyAction",
-        "key": "ctrl+c",
-        "when": "editorTextFocus && integriCode.editingEncryptedProject"
-      },
-      {
-        "command": "editor.action.clipboardCutAction",
-        "key": "ctrl+x",
-        "when": "editorTextFocus && integriCode.editingEncryptedProject"
-      },
-      {
-        "command": "editor.action.clipboardPasteAction",
-        "key": "ctrl+v",
-        "when": "editorTextFocus && integriCode.editingEncryptedProject"
-      }
-    ],
     "commands": [
       {
-        "command": "integricode.helloWorld",
-        "title": "Hello World"
+        "command": "integriCode.noop",
+        "title": "IntegriCode: No Operation"
       },
       {
         "command": "integriCode.openNewProjectFile",
@@ -51,13 +35,40 @@
       },
       {
         "command": "integriCode.openEncryptedProject",
-        "title": "IntegriCode: Open Encrypted Project",
-        "category": "IntegriCode"
+        "title": "IntegriCode: Open Encrypted Project"
       },
       {
         "command": "integriCode.createProject",
         "title": "IntegriCode: Create Project"
       }
+    ],
+    "keybindings": [
+      {
+        "command": "integriCode.noop",
+        "key": "ctrl+c",
+        "when": "editorTextFocus && integriCode.editingEncryptedProject"
+      },
+      {
+        "command": "integriCode.noop",
+        "key": "ctrl+x",
+        "when": "editorTextFocus && integriCode.editingEncryptedProject"
+      },
+      {
+        "command": "integriCode.noop",
+        "key": "ctrl+v",
+        "when": "editorTextFocus && integriCode.editingEncryptedProject"
+      }
+    ],
+    "customEditors": [
+        {
+            "viewType": "integriCode.encryptedProject",
+            "displayName": "IntegriCode Encrypted Project",
+            "selector": [
+                {
+                    "filenamePattern": "*.encrypted.enc"
+                }
+            ]
+        }
     ],
     "menus": {
       "commandPalette": [
