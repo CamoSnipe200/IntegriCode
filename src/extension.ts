@@ -354,6 +354,86 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
         vscode.window.showErrorMessage(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
     }
 });
+
+    // Register the "IntegriCode: Encrypt and Submit File" command
+    const encryptAndSubmitCommand = vscode.commands.registerCommand('integriCode.encryptAndSubmit', async () => {
+        // Step 1: Select the encrypted file
+        const encryptedFileUri = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            openLabel: 'Select Project to Encrypt and Submit',
+            filters: {
+                'Encrypted Files': ['enc'],
+                'All Files': ['*']
+            }
+        });
+    
+        if (!encryptedFileUri || encryptedFileUri.length === 0) {
+            vscode.window.showErrorMessage('No encrypted file selected.');
+            return;
+        }
+    
+        const encryptedFilePath = encryptedFileUri[0].fsPath;
+        currentEncryptedFilePath = encryptedFilePath; // Store the encrypted file path
+    
+        console.log('Encrypted File Path:', currentEncryptedFilePath);
+    
+        // Step 2: Read the encrypted file
+        const encryptedContent = await vscode.workspace.fs.readFile(vscode.Uri.file(encryptedFilePath));
+    
+        // Step 3: Decrypt the content
+        const decryptedContent = await decryptContent(encryptedContent);
+    
+        // Extract code, public key, and hash
+        const delimiterPublicKey = '\n---INSTRUCTOR_PUBLIC_KEY---\n';
+        const delimiterHash = '\n---HASH---\n';
+    
+        const publicKeyIndex = decryptedContent.indexOf(delimiterPublicKey);
+        const hashIndex = decryptedContent.indexOf(delimiterHash);
+    
+        if (publicKeyIndex === -1 || hashIndex === -1) {
+            vscode.window.showErrorMessage('Invalid encrypted file format.');
+            return;
+        }
+    
+        const code = decryptedContent.substring(0, publicKeyIndex);
+        const publicKey = decryptedContent.substring(publicKeyIndex + delimiterPublicKey.length, hashIndex);
+    
+        // This is just a draft. Please look it over again to make sure it makes sense. It might not. 
+        // Need to get the commands or a script to decrypt everything as the instructor as well
+
+        try {
+            // Step 4: Generate a symmetric key
+            const symmetricKey = crypto.randomBytes(32); // AES-256 key
+    
+            // Step 5: Encrypt the decrypted content using the symmetric key
+            const iv = crypto.randomBytes(16); // Initialization vector
+            const cipher = crypto.createCipheriv('aes-256-cbc', symmetricKey, iv);
+            let encryptedData = cipher.update(decryptedContent, 'utf8', 'hex');
+            encryptedData += cipher.final('hex');
+    
+            // Step 6: Encrypt the symmetric key with the public key
+            const encryptedSymmetricKey = crypto.publicEncrypt(
+                {
+                    key: publicKey,
+                    padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+                    oaepHash: 'sha256',
+                },
+                symmetricKey
+            ).toString('hex');
+    
+            // Step 7: Save the encrypted content and encrypted symmetric key
+            const encryptedContentToSave = `${iv.toString('hex')}:${encryptedData}`;
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(`${encryptedFilePath}-sub.aes`), Buffer.from(encryptedContentToSave, 'utf8'));
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(`${encryptedFilePath}-sub.key.enc`), Buffer.from(encryptedSymmetricKey, 'utf8'));
+    
+            vscode.window.showInformationMessage('File encrypted and saved to same location as project.');
+        } catch (error) {
+            vscode.window.showErrorMessage('Encryption failed.');
+            console.error(error);
+        }
+    });
+    
+    context.subscriptions.push(encryptAndSubmitCommand);
 }
 
 export function deactivate() {

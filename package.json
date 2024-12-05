@@ -40,6 +40,10 @@
       {
         "command": "integriCode.createProject",
         "title": "IntegriCode: Create Project"
+      },
+      {
+        "command": "integriCode.encryptAndSubmit",
+        "title": "IntegriCode: Encrypt and Submit"
       }
     ],
     "keybindings": [
