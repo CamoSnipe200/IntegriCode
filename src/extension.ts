@@ -189,20 +189,83 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register the "IntegriCode: Create Project" command
     const createProjectCommand = vscode.commands.registerCommand('integriCode.createProject', async () => {
-        const projectName = await vscode.window.showInputBox({
-            prompt: 'Enter Project Name',
-            placeHolder: 'MyIntegriCodeProject'
-        });
+        try {
+            // Step 1: Inform the user to select the public key file
+            const publicKeyInfo = await vscode.window.showInformationMessage(
+                'Select the public key file provided by your instructor. Click "OK" to proceed.',
+                { modal: true },
+                'OK'
+            );
 
-        if (projectName) {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                const projectPath = `${workspaceFolders[0].uri.fsPath}/${projectName}`;
-                // Logic to create project directory and necessary files
-                vscode.window.showInformationMessage(`IntegriCode Project created at: ${projectPath}`);
-            } else {
-                vscode.window.showErrorMessage('No workspace folder is open.');
+            if (publicKeyInfo !== 'OK') {
+                vscode.window.showErrorMessage('Operation cancelled by the user.');
+                return;
             }
+
+            // Step 2: Select the public key file
+            const publicKeyUri = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                openLabel: 'Select Public Key File',
+                filters: {
+                    'Key Files': ['pem', 'key'],
+                    'All Files': ['*']
+                }
+            });
+
+            if (!publicKeyUri || publicKeyUri.length === 0) {
+                vscode.window.showErrorMessage('No public key file selected.');
+                return;
+            }
+
+            const publicKeyPath = publicKeyUri[0].fsPath;
+
+            // Step 3: Read the instructor's public key
+            const instructorPublicKey = fs.readFileSync(publicKeyPath, 'utf8');
+
+            // Step 4: Create content with a space
+            const content = ' '; // Single space as placeholder
+
+            // Step 5: Generate SHA-512 hash
+            const hash = generateHash(content);
+
+            // Step 6: Append instructor's public key and hash
+            const appendedContent = `${content}\n---INSTRUCTOR_PUBLIC_KEY---\n${instructorPublicKey}\n---HASH---\n${hash}`;
+
+            // Step 7: Retrieve the symmetric key from secure storage
+            const symmetricKey = await getSymmetricKey();
+
+            // Step 8: Encrypt the appended content with the symmetric key using AES-256-GCM
+            const iv = crypto.randomBytes(12); // 96-bit IV for GCM
+            const cipher = crypto.createCipheriv('aes-256-gcm', symmetricKey, iv);
+            let encryptedData = cipher.update(appendedContent, 'utf8');
+            encryptedData = Buffer.concat([encryptedData, cipher.final()]);
+            const authTag = cipher.getAuthTag();
+
+            // Step 9: Combine IV, authTag, and encrypted data
+            const combinedEncryptedData = Buffer.concat([iv, authTag, encryptedData]);
+
+            // Step 10: Ask the user where to save the encrypted file
+            const saveFileUri = await vscode.window.showSaveDialog({
+                saveLabel: 'Save Encrypted Project File',
+                defaultUri: vscode.Uri.file('newProject.encrypted.enc'),
+                filters: {
+                    'Encrypted Files': ['enc'],
+                    'All Files': ['*']
+                }
+            });
+
+            if (!saveFileUri) {
+                vscode.window.showErrorMessage('No save location selected.');
+                return;
+            }
+
+            // Step 11: Write the encrypted content to the chosen path
+            await vscode.workspace.fs.writeFile(saveFileUri, combinedEncryptedData);
+
+            vscode.window.showInformationMessage(`Encrypted project file saved to: ${saveFileUri.fsPath}`);
+        } catch (error) {
+            console.error(`Error during project creation: ${error}`);
+            vscode.window.showErrorMessage(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
 
