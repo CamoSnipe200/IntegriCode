@@ -138,9 +138,18 @@ export async function activate(context: vscode.ExtensionContext) {
             if (isValid) {
                 vscode.window.showInformationMessage('Signature verification successful. The file is authentic.');
             
+                // Modify the appended content creation to use unambiguous delimiters
+                const DELIMITER = '\u2400'; // Unicode NON-BREAKING HYPHEN (␀) - rarely used in code
+
                 // Step 11: Append instructor's public key and SHA-512 hash to the plaintext code
                 const hash = crypto.createHash('sha512').update(codeString, 'utf8').digest('hex');
-                const appendedContent = `${codeString}\n---INSTRUCTOR_PUBLIC_KEY---\n${instructorPublicKey}\n---HASH---\n${hash}`;
+                const appendedContent = [
+                    codeString,
+                    DELIMITER + 'PUBKEY',
+                    instructorPublicKey,
+                    DELIMITER + 'HASH',
+                    hash
+                  ].join('\n');
                 
             
                 // Step 12: Retrieve the symmetric key from secure storage
@@ -159,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Step 14: Ask the user where to save the encrypted file
                 const saveFileUri = await vscode.window.showSaveDialog({
                     saveLabel: 'Save Encrypted File',
-                    defaultUri: vscode.Uri.file(`${codeFilePath}.encrypted.enc`),
+                    defaultUri: vscode.Uri.file(`${codeFilePath}.enc`),
                     filters: {
                         'Encrypted Files': ['enc'],
                         'All Files': ['*']
@@ -228,8 +237,17 @@ export async function activate(context: vscode.ExtensionContext) {
             // Step 5: Generate SHA-512 hash
             const hash = generateHash(content);
 
+            // Modify the appended content creation to use unambiguous delimiters
+            const DELIMITER = '\u2400'; // Unicode NON-BREAKING HYPHEN (␀) - rarely used in code
+
             // Step 6: Append instructor's public key and hash
-            const appendedContent = `${content}\n---INSTRUCTOR_PUBLIC_KEY---\n${instructorPublicKey}\n---HASH---\n${hash}`;
+            const appendedContent = [
+                content,
+                DELIMITER + 'PUBKEY',
+                instructorPublicKey,
+                DELIMITER + 'HASH',
+                hash
+              ].join('\n');
 
             // Step 7: Retrieve the symmetric key from secure storage
             const symmetricKey = await getSymmetricKey();
@@ -297,25 +315,34 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
 
         // Step 3: Decrypt the content
         const decryptedContent = await decryptContent(encryptedContent)
-
-        // Extract code, public key, and hash
-        const delimiterPublicKey = '\n---INSTRUCTOR_PUBLIC_KEY---\n';
-        const delimiterHash = '\n---HASH---\n';
-
-        const publicKeyIndex = decryptedContent.indexOf(delimiterPublicKey);
-        const hashIndex = decryptedContent.indexOf(delimiterHash);
-
-        if (publicKeyIndex === -1 || hashIndex === -1) {
-            vscode.window.showErrorMessage('Invalid encrypted file format.');
+        
+        // Define delimiter
+        const DELIMITER = '\u2400'; // Unicode NON-BREAKING HYPHEN (␀)
+        
+        console.log('Decrypted content length:', decryptedContent.length);
+        
+        // Extract sections using new delimiter format
+        if (!decryptedContent.includes(DELIMITER + 'PUBKEY') || !decryptedContent.includes(DELIMITER + 'HASH')) {
+            vscode.window.showErrorMessage('Invalid file format: Missing required delimiters');
             return;
         }
-
-        const code = decryptedContent.substring(0, publicKeyIndex);
-        const publicKey = decryptedContent.substring(publicKeyIndex + delimiterPublicKey.length, hashIndex);
-        // const hash = decryptedContent.substring(hashIndex + delimiterHash.length);        
-
-            // Debug statement to say we got here
-        console.log('Code Debug:', code);
+        
+        const parts = decryptedContent.split(DELIMITER);
+        console.log('Found', parts.length - 1, 'delimited sections');
+        
+        // Extract code (everything before first delimiter)
+        const code = parts[0].trim();
+        console.log('Code length:', code.length);
+        
+        // Extract public key (between PUBKEY and HASH)
+        const publicKey = decryptedContent
+            .split(DELIMITER + 'PUBKEY')[1]
+            .split(DELIMITER + 'HASH')[0]
+            .trim();
+        console.log('Public key length:', publicKey.length);
+        
+        // Debug statement
+        console.log('Successfully parsed encrypted content');
 
         const panel = vscode.window.createWebviewPanel(
             'integriCodeEncryptedProject', // Identifies the type of the webview. Used internally
@@ -357,6 +384,34 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
 
     // Register the "IntegriCode: Encrypt and Submit File" command
     const encryptAndSubmitCommand = vscode.commands.registerCommand('integriCode.encryptAndSubmit', async () => {
+        // Get student username
+        const studentUsername = await vscode.window.showInputBox({
+            prompt: 'Enter your student username',
+            placeHolder: 'username',
+            validateInput: text => {
+                return text && text.trim().length > 0 ? null : 'Username is required';
+            }
+        });
+
+        if (!studentUsername) {
+            vscode.window.showErrorMessage('Student username is required.');
+            return;
+        }
+
+        // Get project name
+        const projectName = await vscode.window.showInputBox({
+            prompt: 'Enter the project name',
+            placeHolder: 'project1',
+            validateInput: text => {
+                return text && text.trim().length > 0 ? null : 'Project name is required';
+            }
+        });
+
+        if (!projectName) {
+            vscode.window.showErrorMessage('Project name is required.');
+            return;
+        }
+
         // Step 1: Select the encrypted file
         const encryptedFileUri = await vscode.window.showOpenDialog({
             canSelectMany: false,
@@ -382,21 +437,40 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
     
         // Step 3: Decrypt the content
         const decryptedContent = await decryptContent(encryptedContent);
-    
-        // Extract code, public key, and hash
-        const delimiterPublicKey = '\n---INSTRUCTOR_PUBLIC_KEY---\n';
-        const delimiterHash = '\n---HASH---\n';
-    
-        const publicKeyIndex = decryptedContent.indexOf(delimiterPublicKey);
-        const hashIndex = decryptedContent.indexOf(delimiterHash);
-    
-        if (publicKeyIndex === -1 || hashIndex === -1) {
-            vscode.window.showErrorMessage('Invalid encrypted file format.');
+        console.log('Decrypted content length:', decryptedContent.length);
+
+        // Define delimiter
+        const DELIMITER = '\u2400'; // Unicode NON-BREAKING HYPHEN (␀)
+        console.log('Looking for sections using delimiter:', DELIMITER);
+
+        // Validate format
+        if (!decryptedContent.includes(DELIMITER + 'PUBKEY') || 
+            !decryptedContent.includes(DELIMITER + 'HASH')) {
+            console.error('Missing required delimiters in decrypted content');
+            vscode.window.showErrorMessage('Invalid encrypted file format: Missing delimiters');
             return;
         }
-    
-        const code = decryptedContent.substring(0, publicKeyIndex);
-        const publicKey = decryptedContent.substring(publicKeyIndex + delimiterPublicKey.length, hashIndex);
+
+        // Extract sections
+        const sections = decryptedContent.split(DELIMITER);
+        console.log('Found', sections.length - 1, 'delimited sections');
+
+        // Parse content
+        const code = sections[0].trim();
+        const publicKey = sections.find(s => s.startsWith('PUBKEY'))?.substring(6).trim();
+        const hash = sections.find(s => s.startsWith('HASH'))?.substring(4).trim();
+
+        if (!code || !publicKey || !hash) {
+            console.error('Failed to extract required sections');
+            vscode.window.showErrorMessage('Invalid file structure: Missing required content');
+            return;
+        }
+
+        console.log('Successfully extracted:',
+            '\nCode length:', code.length,
+            '\nPublic key length:', publicKey.length,
+            '\nHash length:', hash.length
+        );
     
         // This is just a draft. Please look it over again to make sure it makes sense. It might not. 
         // Need to get the commands or a script to decrypt everything as the instructor as well
@@ -421,12 +495,21 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
                 symmetricKey
             ).toString('hex');
     
-            // Step 7: Save the encrypted content and encrypted symmetric key
-            const encryptedContentToSave = `${iv.toString('hex')}:${encryptedData}`;
-            await vscode.workspace.fs.writeFile(vscode.Uri.file(`${encryptedFilePath}-sub.aes`), Buffer.from(encryptedContentToSave, 'utf8'));
-            await vscode.workspace.fs.writeFile(vscode.Uri.file(`${encryptedFilePath}-sub.key.enc`), Buffer.from(encryptedSymmetricKey, 'utf8'));
-    
-            vscode.window.showInformationMessage('File encrypted and saved to same location as project.');
+        // Step 7: Save the encrypted content and encrypted symmetric key
+        const basePath = encryptedFilePath.substring(0, encryptedFilePath.lastIndexOf('\\'));
+        const submissionPrefix = `${basePath}\\${studentUsername}-${projectName}`;
+
+        const encryptedContentToSave = `${iv.toString('hex')}:${encryptedData}`;
+        await vscode.workspace.fs.writeFile(
+            vscode.Uri.file(`${submissionPrefix}-submission.aes`), 
+            Buffer.from(encryptedContentToSave, 'utf8')
+        );
+        await vscode.workspace.fs.writeFile(
+            vscode.Uri.file(`${submissionPrefix}-submission.key`), 
+            Buffer.from(encryptedSymmetricKey, 'utf8')
+        );
+
+        vscode.window.showInformationMessage(`Files encrypted and saved with prefix: ${studentUsername}-${projectName}`);
         } catch (error) {
             vscode.window.showErrorMessage('Encryption failed.');
             console.error(error);
@@ -595,15 +678,23 @@ async function SaveEncryptedProject(code: string, filePath: string, publicKey: s
     }
 
     console.log('Saving Encrypted Project:', { code, filePath, publicKey });
-    vscode.window.showInformationMessage('SaveEncryptedProject function called.');
 
     try {
         console.log("Got here 1");
         // Step 2: Generate SHA-512 hash of the code
         const hash = generateHash(code);
 
-        // Step 3: Append instructor's public key and hash to the plaintext code
-        const appendedContent = `${code}\n---INSTRUCTOR_PUBLIC_KEY---\n${publicKey}\n---HASH---\n${hash}`;
+        // Modify the appended content creation to use unambiguous delimiters
+        const DELIMITER = '\u2400'; // Unicode NON-BREAKING HYPHEN (␀) - rarely used in code
+
+        // Step 3: Append instructor's public key and hash
+        const appendedContent = [
+            code,
+            DELIMITER + 'PUBKEY',
+            publicKey,
+            DELIMITER + 'HASH',
+            hash
+          ].join('\n');
 
         // Step 4: Retrieve the symmetric key from secure storage
         const symmetricKey = await getSymmetricKey();

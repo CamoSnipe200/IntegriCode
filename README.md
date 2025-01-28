@@ -1,71 +1,62 @@
 # integricode README
 
-This is the README for your extension "integricode". After writing up a brief description, we recommend including the following sections.
+## Instructor Scripts Guide
 
-## Features
+### Step 1: Generate Keys (generateKeys.sh)
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+Generates RSA key pairs for encryption/decryption. Creates both private and public keys in PEM format.
 
-For example if there is an image subfolder under your extension project workspace:
+#### Usage
+```bash
+./generateKeys.sh <name>
+./generateKeys.sh clean
+```
+The name could be your professor name, the class name, or anything else you'd like to identify this key by. It will be in the filename of the public key you give to students. 
 
-\!\[feature X\]\(images/feature-x.png\)
+### Step 2: Prepare Source Code For Students (prepSourceCodeForStudents.sh)
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+Prepares source code files for student distribution by generating cryptographic signatures and hashes. **TODO: Provide instructions for how to do this when you don't have any code to give to students**
 
-## Requirements
+#### Usage
+```bash
+./prepSourceCodeForStudents.sh <code_source_file> <private_key> <public_key>
+./prepSourceCodeForStudents.sh clean
+```
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+(This is the point where the students would do their steps. See the guide for students below...)
 
-## Extension Settings
+### Step 3: Validate and Decrypt Student Code for Submission (validateAndDecryptStudentSubmission.sh)
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+#### Usage
+```bash
+./validateAndDecryptStudentSubmission.sh <student_encrypted_project_file> <student_key_file> <instructor_private_key> <instructor_public_key> [--keep-key]"
+```
+`--keep-key` keeps the temporary symmetric key decrypted from the `<student_key_file>` when included (not usually necessary).
 
-For example:
+## Student usage guide
 
-This extension contributes the following settings:
+### Step 1: IntegriCode: Open New Project File
+It will take the instructor
+- Plaintext source code
+- Signature (.sig)
+- Public key (.pem)
+- Hash of the source code (.sha512)
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+And save the project as a .enc IntegriCode project file.
 
-## Known Issues
+### Step 2: IntegriCode: Open Encrypted Project
+It will as for the .enc file to open so that the student can edit
+Press the `Save Encrypted Project` button to save your changes with IntegriCode's encryption features. The project must only ever be saved this way, or it will not be vaible to open again or submit to the instructor.
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+### Step 3: IntegriCode: Encrypt and Submit
+Will prompt the student for their:
+- Username
+- Project name
+- .enc IntegriCode Project
 
-## Release Notes
+And save a 
+- `-submission.aes` encrypted project file
+- `-submission.key` used to encrypt the project file
 
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+### Step 4: Send the files to your instructor
+It's as simple as that. They can decrypt it and grade your code.
