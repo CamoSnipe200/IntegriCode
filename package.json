@@ -64,15 +64,15 @@
       }
     ],
     "customEditors": [
-        {
-            "viewType": "integriCode.encryptedProject",
-            "displayName": "IntegriCode Encrypted Project",
-            "selector": [
-                {
-                    "filenamePattern": "*.encrypted.enc"
-                }
-            ]
-        }
+      {
+        "viewType": "integriCode.encryptedProject",
+        "displayName": "IntegriCode Encrypted Project",
+        "selector": [
+          {
+            "filenamePattern": "*.enc"
+          }
+        ]
+      }
     ],
     "menus": {
       "commandPalette": [

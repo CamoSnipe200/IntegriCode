@@ -9,6 +9,7 @@ import { TextDecoder, TextEncoder } from 'util'; // Add if not already present
 
 const SERVICE_NAME = 'IntegriCodeExtension';
 const SYMMETRIC_KEY = 'symmetricKey';
+let lastUsedDirectory: vscode.Uri | undefined;
 
 // TODO: Actually disable copy paste. Remove public key and hash from code when opened. Set file type when opened. 
 // Override saving. Fix Integricode: Integricode: Open Encrypted Project. Can the white dot go away?
@@ -265,7 +266,7 @@ export async function activate(context: vscode.ExtensionContext) {
             // Step 10: Ask the user where to save the encrypted file
             const saveFileUri = await vscode.window.showSaveDialog({
                 saveLabel: 'Save Encrypted Project File',
-                defaultUri: vscode.Uri.file('newProject.encrypted.enc'),
+                defaultUri: vscode.Uri.file('newProject.enc'),
                 filters: {
                     'Encrypted Files': ['enc'],
                     'All Files': ['*']
@@ -294,6 +295,7 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
         const encryptedFileUri = await vscode.window.showOpenDialog({
             canSelectMany: false,
             openLabel: 'Select Encrypted Project File',
+            defaultUri: lastUsedDirectory,
             filters: {
                 'Encrypted Files': ['enc'],
                 'All Files': ['*']
@@ -304,6 +306,8 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
             vscode.window.showErrorMessage('No encrypted file selected.');
             return;
         }
+
+        lastUsedDirectory = vscode.Uri.file(encryptedFileUri[0].fsPath.substring(0, encryptedFileUri[0].fsPath.lastIndexOf(path.sep)));
 
         const encryptedFilePath = encryptedFileUri[0].fsPath;
         currentEncryptedFilePath = encryptedFilePath; // Store the encrypted file path
@@ -471,9 +475,6 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
             '\nPublic key length:', publicKey.length,
             '\nHash length:', hash.length
         );
-    
-        // This is just a draft. Please look it over again to make sure it makes sense. It might not. 
-        // Need to get the commands or a script to decrypt everything as the instructor as well
 
         try {
             // Step 4: Generate a symmetric key
@@ -584,88 +585,96 @@ function generateHash(content: string): string {
     return crypto.createHash('sha512').update(content, 'utf8').digest('hex');
 }
 
-// Function to generate the webview content
 function getWebviewContent(theme: string, code: string): string {
     const isDark = theme === 'vs-dark';
     const backgroundColor = isDark ? '#1E1E1E' : '#FFFFFF';
     const textColor = isDark ? '#D4D4D4' : '#000000';
     const fontFamily = `'Segoe UI', 'Consolas', 'Courier New', monospace`;
+    // Use lucario regardless of the VS Code theme
+    const editorTheme = 'dracula';
 
-    // Optional: Include Highlight.js for syntax highlighting
-    const highlightJsLink = isDark
-        ? 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/vs2015.min.css'
-        : 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css';
-    const highlightJsScript = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js';
+    // Escape all backslashes and backticks so that every \ (including \n, \t, etc.) is shown literally.
+    const safeCode = code.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
 
     return `<!DOCTYPE html>
-<html lang="en">
-<head>
+    <html lang="en">
+    <head>
     <meta charset="UTF-8">
     <title>IntegriCode Encrypted Project</title>
-    <link rel="stylesheet" href="${highlightJsLink}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
     <style>
-        body, html {
+        html, body {
             height: 100%;
             margin: 0;
-            display: flex;
-            flex-direction: column;
             background-color: ${backgroundColor};
-            color: ${textColor};
-            font-family: ${fontFamily};
         }
-        textarea {
-            flex: 1;
-            width: 100%;
-            resize: none;
-            font-family: inherit;
+        #editor {
+            height: calc(100% - 40px);
+        }
+        .CodeMirror {
+            height: 100%;
+            font-family: ${fontFamily};
             font-size: 14px;
-            background-color: ${backgroundColor};
             color: ${textColor};
-            border: none;
-            padding: 10px;
-            box-sizing: border-box;
         }
         #saveEncryptedProject {
-        height: 40px;
-        font-size: 16px;
-        background-color: ${isDark ? '#3C3C3C' : '#F3F3F3'};
-        color: ${textColor};
-        border: none;
-        cursor: pointer;
+            width: 100%;
+            height: 40px;
+            font-size: 16px;
+            background-color: ${isDark ? '#3C3C3C' : '#F3F3F3'};
+            color: ${textColor};
+            border: none;
+            cursor: pointer;
         }
         #saveEncryptedProject:hover {
             background-color: ${isDark ? '#505050' : '#E1E1E1'};
         }
-        
     </style>
 </head>
 <body>
-    <textarea id="editor">${code}</textarea>
+    <div id="editor"></div>
     <button id="saveEncryptedProject">Save Encrypted Project</button>
-    <script src="${highlightJsScript}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
     <script>
         const vscode = acquireVsCodeApi();
-
-        // Initialize Highlight.js (optional)
-        hljs.highlightAll();
-
-        // Disable copy, cut, paste, and context menu
-        ['copy', 'cut', 'paste', 'contextmenu'].forEach(event => {
-            document.addEventListener(event, (e) => {
+        const editor = CodeMirror(document.getElementById('editor'), {
+            value: \`${safeCode}\`,
+            mode: 'javascript', // Adjust according to your language
+            theme: '${editorTheme}',
+            lineNumbers: true,
+            autoCloseBrackets: true,
+            tabSize: 4,
+            indentUnit: 4,
+            indentWithTabs: true
+        });
+        
+        // Disable copy, cut, contextmenu events
+        ['copy', 'cut', 'contextmenu'].forEach(eventType => {
+            document.addEventListener(eventType, function(e) {
                 e.preventDefault();
                 vscode.postMessage({ command: 'noop' });
             });
         });
+        
+        // Disable paste by capturing before CodeMirror processes it.
+        editor.getWrapperElement().addEventListener('paste', function(e) {
+            e.preventDefault();
+            vscode.postMessage({ command: 'noop' });
+        }, true);
 
-        // Add event listener for the Save Encrypted Project button
         document.getElementById('saveEncryptedProject').addEventListener('click', () => {
-            const plaintextCode = document.getElementById('editor').value;
+            const plaintextCode = editor.getValue();
             vscode.postMessage({ command: 'SaveEncryptedProject', code: plaintextCode, filePath: '${currentEncryptedFilePath}' });
         });
     </script>
 </body>
 </html>`;
 }
+
+// Maybe try Monaco editor...
 
 async function SaveEncryptedProject(code: string, filePath: string, publicKey: string) {
     // This function handles saving the encrypted project using the provided code, publicKey, and filePath
@@ -680,7 +689,6 @@ async function SaveEncryptedProject(code: string, filePath: string, publicKey: s
     console.log('Saving Encrypted Project:', { code, filePath, publicKey });
 
     try {
-        console.log("Got here 1");
         // Step 2: Generate SHA-512 hash of the code
         const hash = generateHash(code);
 
@@ -706,20 +714,29 @@ async function SaveEncryptedProject(code: string, filePath: string, publicKey: s
         encryptedData = Buffer.concat([encryptedData, cipher.final()]);
         const authTag = cipher.getAuthTag(); // Authentication tag for GCM
 
-        // Debug log to say we got here
-        console.log('Got here!');
-
         // Step 6: Combine IV, authTag, and encrypted data
-        // ** VERIFY THAT THIS IS WORKING!! **
         const combinedEncryptedData = Buffer.concat([iv, authTag, encryptedData]);
 
-        // Debug to print the encrypted data
-        // ** THIS ISN'T PRINTING!! **
-        // console.log('Encrypted Data:', combinedEncryptedData);
-
         // Step 7: Overwrite the encrypted file with the new encrypted data
-        // ** THIS IS FAILING **
         await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), combinedEncryptedData);
+
+        // ---------------- New Code for Saving Plain Code Version ----------------
+        // Determine plain file path by removing the '.enc' suffix if it exists
+        const plainFilePath = filePath.endsWith('.enc') ? filePath.slice(0, -4) : filePath;
+
+        // Big disclaimer comment to add at the top and bottom
+        const disclaimer =
+            `/*********************************************************\n` +
+            `CHANGES TO THIS FILE WILL NOT BE SAVED. MAKE YOUR\n` +
+            `UPDATES WITH THE INTEGRICODE OPEN ENCRYPTED PROJECT FUNCTION\n` +
+            `**********************************************************/\n\n`;
+
+        // Compose the plain code file content with the disclaimer
+        const plainCodeContent = disclaimer + code + "\n\n" + disclaimer;
+
+        // Save the plain code file
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(plainFilePath), Buffer.from(plainCodeContent, 'utf8'));
+        // -------------------------------------------------------------------------
 
         vscode.window.showInformationMessage(`Encrypted project saved successfully at: ${filePath}`);
     } catch (error) {
