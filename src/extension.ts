@@ -497,8 +497,8 @@ const openEncryptedProjectCommand = vscode.commands.registerCommand('integriCode
             ).toString('hex');
     
         // Step 7: Save the encrypted content and encrypted symmetric key
-        const basePath = encryptedFilePath.substring(0, encryptedFilePath.lastIndexOf('\\'));
-        const submissionPrefix = `${basePath}\\${studentUsername}-${projectName}`;
+        const basePath = path.dirname(encryptedFilePath);
+        const submissionPrefix = path.join(basePath, `${studentUsername}-${projectName}`);
 
         const encryptedContentToSave = `${iv.toString('hex')}:${encryptedData}`;
         await vscode.workspace.fs.writeFile(

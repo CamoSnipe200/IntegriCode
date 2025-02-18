@@ -188,7 +188,7 @@ process_submission() {
 
     # 4. Validate decrypted content
     echo -e "${YELLOW}Validating decrypted content...${NC}"
-    local delimiter=$'\u2400'
+    local delimiter=$'\xe2\x90\x80'
     local code_content
     code_content=$(awk -v delim="${delimiter}PUBKEY" 'index($0, delim) { exit } { print }' "${plain_code}-temp")
     if ! grep -q "${delimiter}PUBKEY" "${plain_code}-temp"; then
@@ -215,7 +215,13 @@ process_submission() {
     rm -f "${plain_code}-temp"
 
     local generated_hash
-    generated_hash=$(printf "%s" "$code_content" | sha512sum | cut -d' ' -f1)
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS
+        generated_hash=$(printf "%s" "$code_content" | shasum -a 512 | cut -d' ' -f1)
+    else
+        # Linux and others
+        generated_hash=$(printf "%s" "$code_content" | sha512sum | cut -d' ' -f1)
+    fi
 
     echo
     echo -e "${BLUE}Embedded public key:${NC}"

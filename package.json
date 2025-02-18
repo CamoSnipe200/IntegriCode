@@ -2,16 +2,14 @@
   "name": "integricode",
   "displayName": "IntegriCode",
   "description": "Secure extension that preserves integrity of student code by disabling copy-pasting.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.97.0"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "onCommand:integriCode.openNewProjectFile",
-    "onCommand:integriCode.createProject",
     "onStartupFinished",
     "onLanguage:javascript",
     "onLanguage:typescript",
@@ -19,8 +17,7 @@
     "onLanguage:c",
     "onLanguage:cpp",
     "onLanguage:java",
-    "onFile:*.encrypted.enc",
-    "onCommand:integriCode.openEncryptedProject"
+    "onFile:*.encrypted.enc"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -109,7 +106,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.7",
     "@types/node": "20.x",
-    "@types/vscode": "^1.93.0",
+    "@types/vscode": "^1.97.0",
     "@typescript-eslint/eslint-plugin": "^8.3.0",
     "@typescript-eslint/parser": "^8.3.0",
     "@vscode/test-cli": "^0.0.10",
