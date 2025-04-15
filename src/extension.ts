@@ -5,14 +5,11 @@ import * as crypto from 'crypto';
 import * as keytar from 'keytar';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TextDecoder, TextEncoder } from 'util'; // Add if not already present
+import { TextDecoder, TextEncoder } from 'util';
 
 const SERVICE_NAME = 'IntegriCodeExtension';
 const SYMMETRIC_KEY = 'symmetricKey';
 let lastUsedDirectory: vscode.Uri | undefined;
-
-// TODO: Actually disable copy paste. Remove public key and hash from code when opened. Set file type when opened. 
-// Override saving. Fix Integricode: Integricode: Open Encrypted Project. Can the white dot go away?
 
 // Add a variable to store the current encrypted file path
 let currentEncryptedFilePath: string | null = null;
@@ -577,6 +574,7 @@ async function encryptContent(plainText: string): Promise<Uint8Array> {
 
 /**
  * Generates a SHA-512 hash of the given content.
+ * Also, SHA-512 is just cool B-)
  * 
  * @param content The content to hash.
  * @returns The hexadecimal representation of the hash.
@@ -673,8 +671,6 @@ function getWebviewContent(theme: string, code: string): string {
 </body>
 </html>`;
 }
-
-// Maybe try Monaco editor...
 
 async function SaveEncryptedProject(code: string, filePath: string, publicKey: string) {
     // This function handles saving the encrypted project using the provided code, publicKey, and filePath
